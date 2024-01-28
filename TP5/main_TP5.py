@@ -7,8 +7,12 @@ from KalmanFilter import KalmanFilter
 from torchvision import transforms, models, datasets
 from torchsummary import summary
 
-
 def IoU(box1, box2):
+    """
+        Compute the IoU between two boxes.
+        The boxes are expected to be in the format [x, y, w, h].
+    """
+
     x1, y1, w1, h1 = box1
     x2, y2, w2, h2 = box2
 
@@ -26,6 +30,11 @@ def IoU(box1, box2):
 
 
 def similarity(boxes_prev, boxes_nxt, model):
+    """
+        Compute the similarity matrix between two frames.
+        So the similarity between two boxes is the IoU between them.
+    """
+
     sim = np.zeros((len(boxes_prev), len(boxes_nxt)))
     for i in range(len(boxes_prev)):
         for j in range(len(boxes_nxt)):
@@ -43,6 +52,7 @@ def nb_obj(frame, sigma=40):
 
 
 def frame_to_boxes(frame, sigma=40):
+
     nb = nb_obj(frame, sigma)
     boxes = np.zeros((nb, 4))
     for i in range(len(frame)):
@@ -54,25 +64,11 @@ def frame_to_boxes(frame, sigma=40):
         boxes[i][3] = frame.iloc[i].iloc[5]
     return boxes
 
-
-def greedy_id(sim_matrix, id_prev, sig_iou=0.4):
-    id_next = []
-    lines_used = []
-    for i in range(sim_matrix.shape[1]):
-        if len(id_next) == sim_matrix.shape[0]:
-            break
-        max_col = np.argsort(-(sim_matrix[:, i]))
-        for col in max_col:
-            if sim_matrix[col][i] < sig_iou:
-                break
-            if col not in lines_used:
-                id_next.append((i, id_prev[col]))
-                lines_used.append(col)
-                break
-    return id_next
-
-
 def hungarian_id(sim_matrix, id_prev, sig_iou=0.4):
+    """
+    Compute the hungarian algorithm to find the best id for each box.
+    """
+
     ## use linear_sum_assignment from scipy.optimize
     clear_sim_matrix = sim_matrix.copy()
     for i in range(len(clear_sim_matrix)):
@@ -88,6 +84,10 @@ def hungarian_id(sim_matrix, id_prev, sig_iou=0.4):
 
 
 def update_tracks(id_max, couples, nb_obj):
+    """
+        Update the tracks with the new id. The couples are made from the greedy algorithm.
+        So it upadate the tracks with the new id and create new id for the new objects.
+    """
     new_tracks = []
     for i in range(nb_obj):
         not_find = True
@@ -102,6 +102,9 @@ def update_tracks(id_max, couples, nb_obj):
 
 
 def display(boxes, labels, tacks, frame, kalmanboxes, kalman, df_gt):
+    """
+        Display the boxes on the image.
+    """
     image_name = "ADL-Rundle-6/img1/" + str(int(labels)).zfill(6) + ".jpg"
     img = cv2.imread(image_name)
     for i in range(len(boxes)):
@@ -123,6 +126,10 @@ def display(boxes, labels, tacks, frame, kalmanboxes, kalman, df_gt):
     return df_gt
 
 def generate_model_resnet():
+    """
+    Generate the model resnet18 pretrained on ImageNet from torchvision.
+    We remove the last layer (fully connected) and freeze the parameters of the feature extractor.
+    """
     model = models.resnet18(pretrained=True)
     modules = list(model.children())[:-1]
     model = torch.nn.Sequential(*modules)
@@ -134,6 +141,10 @@ def generate_model_resnet():
     return model
 
 def generate_model_mobilenet2():
+    """
+    Generate the model mobilenet_v2 pretrained on ImageNet from torchvision.
+    We remove the last layer (fully connected) and freeze the parameters of the feature extractor.
+    """
     model = models.mobilenet_v2(pretrained=True)
     # Supprimer la dernière couche entièrement connectée (classifier)
     model = torch.nn.Sequential(*(list(model.children())[:-1]))
@@ -147,6 +158,10 @@ def generate_model_mobilenet2():
 
 
 def generate_model_mobilenet():
+    """
+    Generate the model mobilenet_v3 pretrained on ImageNet from torchvision.
+    We add a identity layer to remove the last layer (fully connected) and freeze the parameters of the feature extractor.
+    """
     model = models.mobilenet_v3_small(pretrained=True)
     # Remove the classifier layer
     model.classifier = torch.nn.Identity()
@@ -158,17 +173,25 @@ def generate_model_mobilenet():
 
 
 def compute_features(model, label, boxes):
+    """
+    Compute the features of the boxes with the model.
+    """
     features = []
+    # Get the image
     image_name = "ADL-Rundle-6/img1/" + str(int(label)).zfill(6) + ".jpg"
     image = cv2.imread(image_name)
     for box in boxes:
         x, y, w, h = box
+        # Clip the box
         x = max(0, x)
         y = max(0, y)
+        # Crop the box
         crop = image[int(y):int(y + h), int(x):int(x + w)]
+        # Resize the box
         crop = cv2.resize(crop, (224, 224))
         crop = transforms.ToTensor()(crop)
         crop = torch.unsqueeze(crop, 0)
+        # Compute the feature
         feature = model(crop)
         feature = torch.squeeze(feature)
         feature = feature.detach().numpy()
@@ -176,6 +199,10 @@ def compute_features(model, label, boxes):
     return np.array(features)  # Convertir la liste de caractéristiques en une matrice
 
 def compute_sim_features(model, label_prev, label, boxes_prev, boxes):
+    """
+    Compute the cosine similarity between the features of the boxes.
+    This function also compute the features of the boxes.
+    """
     features_prev = compute_features(model, label_prev, boxes_prev)
     features = compute_features(model, label, boxes)
     sim = np.zeros((len(features_prev), len(features)))
@@ -187,14 +214,27 @@ def compute_sim_features(model, label_prev, label, boxes_prev, boxes):
 
 
 def sim_fusion(sim1, sim2, alpha=0.5):
+    """
+    Fusion the two similarity matrix with a weighted sum.
+    """
     return alpha * sim1 + (1 - alpha) * sim2
 
 def find_center(box):
+    """
+    Find the center of the box. This is used for the kalman filter.
+    """
     x, y, w, h = box
     return [[x + w / 2], [y + h / 2]]
 
 
 def save_detection(track, kalman, kalmanboxes, boxes):
+    """
+    Save the detection in the kalman filter.
+    kalman is a dictionnary with the id of the track as key and the kalman filter as value.
+    So if we find a new track, we create a new kalman filter, update and predict it.
+    If we find an old track, we update and predict it.
+    And in every case, we save the box in kalmanboxes.
+    """
     for i in range(len(track)):
         if track[i] not in kalman.keys():
             kalman[track[i]] = KalmanFilter(dt=0.1, u_x=1, u_y=1, std_acc=1, x_std_meas=0.1, y_std_meas=0.1)
@@ -208,6 +248,9 @@ def save_detection(track, kalman, kalmanboxes, boxes):
 
 
 def kalman_to_boxes(kalman, kalmanboxes, track):
+    """
+    Generate the boxes from the kalman filter.
+    """
     boxes = []
     for i in range(len(track)):
         w, h = kalmanboxes[track[i]][2], kalmanboxes[track[i]][3]

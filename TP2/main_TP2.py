@@ -3,6 +3,10 @@ import numpy as np
 import cv2
 
 def IoU(box1, box2):
+    """
+    Compute the IoU between two boxes.
+    The boxes are expected to be in the format [x, y, w, h].
+    """
     x1, y1, w1, h1 = box1
     x2, y2, w2, h2 = box2
 
@@ -19,6 +23,10 @@ def IoU(box1, box2):
     return np.abs(intersection / union)
 
 def similarity(boxes_prev, boxes_nxt):
+    """
+    Compute the similarity matrix between two frames.
+    So the similarity between two boxes is the IoU between them.
+    """
     sim = np.zeros((len(boxes_prev), len(boxes_nxt)))
     for i in range(len(boxes_prev)):
         for j in range(len(boxes_nxt)):
@@ -35,6 +43,9 @@ def nb_obj(frame, sigma = 40):
 
 
 def frame_to_boxes(frame, sigma = 40):
+    """
+    Convert a frame that is a pandas dataframe to a numpy array of boxes.
+    """
     nb = nb_obj(frame, sigma)
     boxes = np.zeros((nb, 4))
     for i in range(len(frame)):
@@ -47,6 +58,9 @@ def frame_to_boxes(frame, sigma = 40):
     return boxes
 
 def greedy_id(sim_matrix, id_prev, sig_iou = 0.4):
+    """
+    Compute the greedy algorithm to find the best id for each box.
+    """
     id_next = []
     lines_used = []
     for i in range(sim_matrix.shape[1]):
@@ -63,6 +77,10 @@ def greedy_id(sim_matrix, id_prev, sig_iou = 0.4):
     return id_next
 
 def update_tracks(id_max, couples, nb_obj):
+    """
+    Update the tracks with the new id. The couples are made from the greedy algorithm.
+    So it upadate the tracks with the new id and create new id for the new objects.
+    """
     new_tracks = []
     for i in range(nb_obj):
         not_find = True
@@ -76,6 +94,9 @@ def update_tracks(id_max, couples, nb_obj):
     return new_tracks
 
 def display(boxes, labels, tacks, frame):
+    """
+    Display the boxes on the image.
+    """
     image_name = "ADL-Rundle-6/img1/" + str(int(labels)).zfill(6) + ".jpg"
     img = cv2.imread(image_name)
     for i in range(len(boxes)):
@@ -84,10 +105,11 @@ def display(boxes, labels, tacks, frame):
         cv2.putText(img, str(int(frame.iloc[i].iloc[6])), (int(boxes[i][0]) + int(boxes[i][2]) , int(boxes[i][1])), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255,0), 2, cv2.LINE_AA)
     cv2.imshow('jsp',img)
 
-sigma = 15
+
+sigma = 15 # threshold for the detection
 det = pd.read_csv('ADL-Rundle-6/det/det.txt')
 det_grouped_frame = det.groupby('frame')
-nb_group = det_grouped_frame.ngroups
+nb_group = det_grouped_frame.ngroups    # number of frames
 # init tracking
 frame1 = det_grouped_frame.get_group(1)
 boxes2 = frame_to_boxes(frame1,sigma)
@@ -97,12 +119,17 @@ for i in range(2,nb_group,1):
     ## display 
     display(boxes2, last_frame.iloc[0].iloc[0], tracks, last_frame)
     k = cv2.waitKey(0)
+    # End if ESC pressed
     if k == 27:
         break
     act_frame = det_grouped_frame.get_group(i)
+    # generate the boxes
     boxes1 = frame_to_boxes(last_frame,sigma)
     boxes2 = frame_to_boxes(act_frame,sigma)
+    # compute the similarity matrix
     sim_matrix = similarity(boxes1, boxes2)
+    # compute the greedy algorithm
     couples = greedy_id(sim_matrix, tracks)
+    # update the tracks
     tracks = update_tracks(max(tracks), couples, len(act_frame))
     last_frame = act_frame

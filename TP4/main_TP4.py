@@ -4,8 +4,11 @@ import cv2
 from scipy.optimize import linear_sum_assignment
 from KalmanFilter import KalmanFilter
 
-
 def IoU(box1, box2):
+    """
+        Compute the IoU between two boxes.
+        The boxes are expected to be in the format [x, y, w, h].
+    """
     x1, y1, w1, h1 = box1
     x2, y2, w2, h2 = box2
 
@@ -22,6 +25,10 @@ def IoU(box1, box2):
     return np.abs(intersection / union)
 
 def similarity(boxes_prev, boxes_nxt):
+    """
+        Compute the similarity matrix between two frames.
+        So the similarity between two boxes is the IoU between them.
+    """
     sim = np.zeros((len(boxes_prev), len(boxes_nxt)))
     for i in range(len(boxes_prev)):
         for j in range(len(boxes_nxt)):
@@ -49,23 +56,11 @@ def frame_to_boxes(frame, sigma = 40):
         boxes[i][3] = frame.iloc[i].iloc[5]
     return boxes
 
-def greedy_id(sim_matrix, id_prev, sig_iou = 0.4):
-    id_next = []
-    lines_used = []
-    for i in range(sim_matrix.shape[1]):
-        if len(id_next) == sim_matrix.shape[0]:
-            break
-        max_col = np.argsort(-(sim_matrix[:, i]))
-        for col in max_col:
-            if sim_matrix[col][i] < sig_iou:
-                break
-            if col not in lines_used:
-                id_next.append((i, id_prev[col]))
-                lines_used.append(col)
-                break
-    return id_next
-
 def hungarian_id(sim_matrix, id_prev, sig_iou = 0.4):
+    """
+    Compute the hungarian algorithm to find the best id for each box.
+    """
+
     ## use linear_sum_assignment from scipy.optimize
     clear_sim_matrix = sim_matrix.copy()
     for i in range(len(clear_sim_matrix)):
@@ -80,6 +75,10 @@ def hungarian_id(sim_matrix, id_prev, sig_iou = 0.4):
     return couples
 
 def update_tracks(id_max, couples, nb_obj):
+    """
+        Update the tracks with the new id. The couples are made from the greedy algorithm.
+        So it upadate the tracks with the new id and create new id for the new objects.
+    """
     new_tracks = []
     for i in range(nb_obj):
         not_find = True
@@ -93,6 +92,9 @@ def update_tracks(id_max, couples, nb_obj):
     return new_tracks
 
 def display(boxes, labels, tacks, frame, kalmanboxes, kalman, df_gt):
+    """
+        Display the boxes on the image.
+    """
     image_name = "ADL-Rundle-6/img1/" + str(int(labels)).zfill(6) + ".jpg"
     img = cv2.imread(image_name)
     for i in range(len(boxes)):
@@ -108,12 +110,22 @@ def display(boxes, labels, tacks, frame, kalmanboxes, kalman, df_gt):
     return df_gt
 
 def find_center(box):
+    """
+    Find the center of the box. This is used for the kalman filter.
+    """
     x, y, w, h = box
     return [[x + w/2], [y + h/2]]
 
 
 
 def save_detection(track, kalman, kalmanboxes, boxes):
+    """
+    Save the detection in the kalman filter.
+    kalman is a dictionnary with the id of the track as key and the kalman filter as value.
+    So if we find a new track, we create a new kalman filter, update and predict it.
+    If we find an old track, we update and predict it.
+    And in every case, we save the box in kalmanboxes.
+    """
     for i in range(len(track)):
         if track[i] not in kalman.keys():
             kalman[track[i]] = KalmanFilter(dt=0.1, u_x=1, u_y=1, std_acc=1, x_std_meas=0.1, y_std_meas=0.1)
@@ -130,15 +142,15 @@ def save_detection(track, kalman, kalmanboxes, boxes):
             
 
 def kalman_to_boxes(kalman, kalmanboxes ,track):
+    """
+    Generate the boxes from the kalman filter.
+    """
     boxes = []
     for i in range(len(track)):
         w, h = kalmanboxes[track[i]][2], kalmanboxes[track[i]][3]
         xe, ye = kalman[track[i]].xk[0][0], kalman[track[i]].xk[1][0]
         boxes.append([xe - w/2, ye - h/2, w, h])
     return boxes
-    
-
-
 
 def main():
     kalman = {}
@@ -161,7 +173,6 @@ def main():
         if k == 27:
             break
         act_frame = det_grouped_frame.get_group(i)
-        #boxes1 = frame_to_boxes(last_frame,sigma)
         boxes1 = kalman_to_boxes(kalman, kalmanboxes, tracks)
         boxes2 = frame_to_boxes(act_frame,sigma)
         sim_matrix = similarity(boxes1, boxes2)

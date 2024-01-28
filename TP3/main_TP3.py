@@ -4,6 +4,11 @@ import cv2
 from scipy.optimize import linear_sum_assignment
 
 def IoU(box1, box2):
+    """
+        Compute the IoU between two boxes.
+        The boxes are expected to be in the format [x, y, w, h].
+    """
+
     x1, y1, w1, h1 = box1
     x2, y2, w2, h2 = box2
 
@@ -20,6 +25,10 @@ def IoU(box1, box2):
     return np.abs(intersection / union)
 
 def similarity(boxes_prev, boxes_nxt):
+    """
+        Compute the similarity matrix between two frames.
+        So the similarity between two boxes is the IoU between them.
+    """
     sim = np.zeros((len(boxes_prev), len(boxes_nxt)))
     for i in range(len(boxes_prev)):
         for j in range(len(boxes_nxt)):
@@ -35,6 +44,10 @@ def nb_obj(frame, sigma = 40):
     return nb
 
 def frame_to_boxes(frame, sigma = 40):
+    """
+        Convert a frame that is a pandas dataframe to a numpy array of boxes.
+    """
+
     nb = nb_obj(frame, sigma)
     boxes = np.zeros((nb, 4))
     for i in range(len(frame)):
@@ -46,23 +59,10 @@ def frame_to_boxes(frame, sigma = 40):
         boxes[i][3] = frame.iloc[i].iloc[5]
     return boxes
 
-def greedy_id(sim_matrix, id_prev, sig_iou = 0.4):
-    id_next = []
-    lines_used = []
-    for i in range(sim_matrix.shape[1]):
-        if len(id_next) == sim_matrix.shape[0]:
-            break
-        max_col = np.argsort(-(sim_matrix[:, i]))
-        for col in max_col:
-            if sim_matrix[col][i] < sig_iou:
-                break
-            if col not in lines_used:
-                id_next.append((i, id_prev[col]))
-                lines_used.append(col)
-                break
-    return id_next
-
 def hungarian_id(sim_matrix, id_prev, sig_iou = 0.4):
+    """
+    Compute the hungarian algorithm to find the best id for each box.
+    """
     ## use linear_sum_assignment from scipy.optimize
     clear_sim_matrix = sim_matrix.copy()
     for i in range(len(clear_sim_matrix)):
@@ -77,6 +77,10 @@ def hungarian_id(sim_matrix, id_prev, sig_iou = 0.4):
     return couples
 
 def update_tracks(id_max, couples, nb_obj):
+    """
+        Update the tracks with the new id. The couples are made from the greedy algorithm.
+        So it upadate the tracks with the new id and create new id for the new objects.
+    """
     new_tracks = []
     for i in range(nb_obj):
         not_find = True
@@ -90,6 +94,9 @@ def update_tracks(id_max, couples, nb_obj):
     return new_tracks
 
 def display(boxes, labels, tacks, frame, df_gt):
+    """
+        Display the boxes on the image.
+    """
     image_name = "ADL-Rundle-6/img1/" + str(int(labels)).zfill(6) + ".jpg"
     img = cv2.imread(image_name)
     for i in range(len(boxes)):
@@ -99,10 +106,6 @@ def display(boxes, labels, tacks, frame, df_gt):
         cv2.putText(img, str(int(frame.iloc[i].iloc[6])), (int(boxes[i][0]) + int(boxes[i][2]) , int(boxes[i][1])), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255,0), 2, cv2.LINE_AA)
     cv2.imshow('jsp',img)
     return df_gt
-
-def save_detection():
-    pass
-
 
 def main():
     sigma = 15
@@ -118,14 +121,13 @@ def main():
     for i in range(2,nb_group,1):
         ## display 
         df_gt = display(boxes2, last_frame.iloc[0].iloc[0], tracks, last_frame, df_gt)
-        #k = cv2.waitKey(0)
-        #if k == 27:
-        #    break
+        k = cv2.waitKey(0)
+        if k == 27:
+            break
         act_frame = det_grouped_frame.get_group(i)
         boxes1 = frame_to_boxes(last_frame,sigma)
         boxes2 = frame_to_boxes(act_frame,sigma)
         sim_matrix = similarity(boxes1, boxes2)
-        #couples = greedy_id(sim_matrix, tracks)
         couples = hungarian_id(sim_matrix, tracks)
         tracks = update_tracks(max(tracks), couples, len(act_frame))
         last_frame = act_frame
