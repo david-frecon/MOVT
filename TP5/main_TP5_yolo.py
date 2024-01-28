@@ -42,16 +42,6 @@ def nb_obj(frame, sigma=40):
         nb += 1
     return nb
 
-def yolo_to_boxes(model, label):
-    img = Image.open("ADL-Rundle-6/img1/" + str(int(label)).zfill(6) + ".jpg")
-    results = model.predict(source=img)
-    boxes = []
-    for res in range(len(results)):
-        for box in results[res].boxes:
-            if box.cls == 0 and box.conf > 0.4:
-                boxes.append(box.xywh[0].detach().cpu().numpy())
-    return boxes
-
 def frame_to_boxes(frame, sigma=40):
     nb = nb_obj(frame, sigma)
     boxes = np.zeros((nb, 4))
@@ -111,10 +101,15 @@ def update_tracks(id_max, couples, nb_obj):
     return new_tracks
 
 
-def display(boxes, labels, tacks, frame, kalmanboxes, kalman):
+def display(boxes, labels, tacks, frame, kalmanboxes, kalman, df_gt):
     image_name = "ADL-Rundle-6/img1/" + str(int(labels)).zfill(6) + ".jpg"
     img = cv2.imread(image_name)
     for i in range(len(boxes)):
+        df_gt = df_gt._append({'frame': int(labels), 'id': int(tacks[i]), 'x': boxes[i][0], 'y': boxes[i][1],
+                               'w': boxes[i][2], 'h': boxes[i][3], 'score': 1,
+                               'class': 1, 'visibility': 1,
+                               'unused': 1}, ignore_index=True)
+
         cv2.rectangle(img, (int(boxes[i][0]), int(boxes[i][1])),
                       (int(boxes[i][0]) + int(boxes[i][2]), int(boxes[i][1]) + int(boxes[i][3])), (0, 255, 0), 2)
         xe, ye = kalman[tacks[i]].xk[0][0], kalman[tacks[i]].xk[1][0]
@@ -125,6 +120,7 @@ def display(boxes, labels, tacks, frame, kalmanboxes, kalman):
         #cv2.putText(img, str(int(frame.iloc[i].iloc[6])), (int(boxes[i][0]) + int(boxes[i][2]), int(boxes[i][1])),
         #            cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 0), 2, cv2.LINE_AA)
     cv2.imshow('jsp', img)
+    return df_gt
 
 def generate_model_resnet():
     model = models.resnet18(pretrained=True)
@@ -219,34 +215,48 @@ def kalman_to_boxes(kalman, kalmanboxes, track):
         boxes.append([xe - w / 2, ye - h / 2, w, h])
     return boxes
 
+def yolo_to_boxes(model, label):
+    img = Image.open("ADL-Rundle-6/img1/" + str(int(label)).zfill(6) + ".jpg")
+    results = model.predict(source=img)
+    boxes = []
+    for res in range(len(results)):
+        for box in results[res].boxes:
+            if box.cls == 0 and box.conf > 0.55:
+                boxes.append(box.xywh[0].detach().cpu().numpy())
+    for i in range(len(boxes)):
+        boxes[i] = [boxes[i][0] - boxes[i][2]/2, boxes[i][1] - boxes[i][3]/2, boxes[i][2], boxes[i][3]]
+    return boxes
+
 
 def main():
     kalman = {}
     kalmanboxes = {}
     model = generate_model_mobilenet()
-    model = YOLO("yolov8m.pt")
+    yolo = YOLO("yolov8m.pt")
     sigma = 15
     det = pd.read_csv('ADL-Rundle-6/det/det.txt')
+    df_gt = pd.DataFrame(columns=['frame', 'id', 'x', 'y', 'w', 'h', 'score', 'class', 'visibility', 'unused'])
     det_grouped_frame = det.groupby('frame')
     nb_group = det_grouped_frame.ngroups
     # init tracking
     frame1 = det_grouped_frame.get_group(1)
     #boxes2 = frame_to_boxes(frame1, sigma)
-    boxes2 = yolo_to_boxes(model, frame1.iloc[0].iloc[0])
+    boxes2 = yolo_to_boxes(yolo, frame1.iloc[0].iloc[0])
     tracks = update_tracks(0, [], len(boxes2))
     save_detection(tracks, kalman, kalmanboxes, boxes2)  # TP 4
     last_frame = frame1
     for i in range(2, nb_group, 1):
         ## display
-        display(boxes2, last_frame.iloc[0].iloc[0], tracks, last_frame, kalmanboxes, kalman)
-        k = cv2.waitKey(0)
+        df_gt = display(boxes2, last_frame.iloc[0].iloc[0], tracks, last_frame, kalmanboxes, kalman, df_gt)
+        print(i)
+        """k = cv2.waitKey(0)
         if k == 27:
-            break
+            break"""
         act_frame = det_grouped_frame.get_group(i)
         # boxes1 = frame_to_boxes(last_frame,sigma)
         boxes1 = kalman_to_boxes(kalman, kalmanboxes, tracks)
         #boxes2 = frame_to_boxes(act_frame, sigma)
-        boxes2 = yolo_to_boxes(model, act_frame.iloc[0].iloc[0])
+        boxes2 = yolo_to_boxes(yolo, act_frame.iloc[0].iloc[0])
         labels = act_frame.iloc[0].iloc[0]
         features_matrix = compute_sim_features(model, last_frame.iloc[0].iloc[0], labels, boxes1, boxes2)
         sim_matrix = similarity(boxes1, boxes2, model)
@@ -255,6 +265,8 @@ def main():
         tracks = update_tracks(max(tracks), couples, len(boxes2))
         save_detection(tracks, kalman, kalmanboxes, boxes2)
         last_frame = act_frame
+
+    df_gt.to_csv("ADL-Rundle-6/det/yolo.csv", index=False)
 
 
 main()
