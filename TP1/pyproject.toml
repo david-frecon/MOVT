@@ -1,0 +1,16 @@
+[tool.poetry]
+name = "tp1-data"
+version = "0.1.0"
+description = ""
+authors = ["david.frecon <david.frecon@epita.fr>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+numpy = "^1.26.2"
+opencv-python = "^4.8.1.78"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
